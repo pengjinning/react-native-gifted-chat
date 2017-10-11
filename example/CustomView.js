@@ -1,13 +1,15 @@
-import React, { Component } from 'react';
+import PropTypes from 'prop-types';
+import React from 'react';
 import {
   Linking,
-  MapView,
   Platform,
   StyleSheet,
   TouchableOpacity,
+  ViewPropTypes,
 } from 'react-native';
+import MapView from 'react-native-maps';
 
-export default class CustomView extends Component {
+export default class CustomView extends React.Component {
   render() {
     if (this.props.currentMessage.location) {
       return (
@@ -29,11 +31,9 @@ export default class CustomView extends Component {
             region={{
               latitude: this.props.currentMessage.location.latitude,
               longitude: this.props.currentMessage.location.longitude,
+              latitudeDelta: 0.0922,
+              longitudeDelta: 0.0421,
             }}
-            annotations={[{
-              latitude: this.props.currentMessage.location.latitude,
-              longitude: this.props.currentMessage.location.longitude,
-            }]}
             scrollEnabled={false}
             zoomEnabled={false}
           />
@@ -56,7 +56,13 @@ const styles = StyleSheet.create({
 });
 
 CustomView.defaultProps = {
+  currentMessage: {},
   containerStyle: {},
   mapViewStyle: {},
-  currentMessage: {},
+};
+
+CustomView.propTypes = {
+  currentMessage: PropTypes.object,
+  containerStyle: ViewPropTypes.style,
+  mapViewStyle: ViewPropTypes.style,
 };

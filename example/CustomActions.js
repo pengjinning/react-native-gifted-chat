@@ -1,16 +1,18 @@
-import React, { Component, PropTypes } from 'react';
+import PropTypes from 'prop-types';
+import React from 'react';
 import {
   Modal,
   StyleSheet,
   TouchableOpacity,
   View,
+  ViewPropTypes,
   Text,
 } from 'react-native';
 
 import CameraRollPicker from 'react-native-camera-roll-picker';
 import NavBar, { NavButton, NavButtonText, NavTitle } from 'react-native-nav';
 
-export default class CustomActions extends Component {
+export default class CustomActions extends React.Component {
   constructor(props) {
     super(props);
     this._images = [];
@@ -186,8 +188,18 @@ CustomActions.contextTypes = {
 
 CustomActions.defaultProps = {
   onSend: () => {},
-  containerStyle: {},
-  iconStyle: {},
   options: {},
   icon: null,
+  containerStyle: {},
+  wrapperStyle: {},
+  iconTextStyle: {},
+};
+
+CustomActions.propTypes = {
+  onSend: PropTypes.func,
+  options: PropTypes.object,
+  icon: PropTypes.func,
+  containerStyle: ViewPropTypes.style,
+  wrapperStyle: ViewPropTypes.style,
+  iconTextStyle: Text.propTypes.style,
 };

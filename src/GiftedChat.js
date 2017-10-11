@@ -1,17 +1,17 @@
-import React, { Component, PropTypes } from 'react';
+import PropTypes from 'prop-types';
+import React from 'react';
 import {
   Animated,
-  InteractionManager,
   Platform,
   StyleSheet,
   View,
 } from 'react-native';
 
-import ActionSheet from '@exponent/react-native-action-sheet';
-import dismissKeyboard from 'react-native-dismiss-keyboard';
+import ActionSheet from '@expo/react-native-action-sheet';
 import moment from 'moment/min/moment-with-locales.min';
-import md5 from 'md5';
+import uuid from 'uuid';
 
+import * as utils from './utils';
 import Actions from './Actions';
 import Avatar from './Avatar';
 import Bubble from './Bubble';
@@ -25,6 +25,8 @@ import Message from './Message';
 import MessageContainer from './MessageContainer';
 import Send from './Send';
 import Time from './Time';
+import GiftedAvatar from './GiftedAvatar';
+import GiftedChatInteractionManager from './GiftedChatInteractionManager';
 
 // Min and max heights of ToolbarInput and Composer
 // Needed for Composer auto grow and ScrollView animation
@@ -34,36 +36,47 @@ const MIN_COMPOSER_HEIGHT = Platform.select({
   android: 41,
 });
 const MAX_COMPOSER_HEIGHT = 100;
-const MIN_INPUT_TOOLBAR_HEIGHT = 44;
 
-class GiftedChat extends Component {
+class GiftedChat extends React.Component {
   constructor(props) {
     super(props);
 
     // default values
     this._isMounted = false;
     this._keyboardHeight = 0;
+    this._bottomOffset = 0;
     this._maxHeight = null;
-    this._touchStarted = false;
-    this._isTypingDisabled = false;
+    this._isFirstLayout = true;
     this._locale = 'en';
     this._messages = [];
-    this._messagesHash = null;
 
     this.state = {
       isInitialized: false, // initialization will calculate maxHeight before rendering the chat
+      composerHeight: MIN_COMPOSER_HEIGHT,
+      messagesContainerHeight: null,
+      typingDisabled: false
     };
 
-    this.onTouchStart = this.onTouchStart.bind(this);
-    this.onTouchMove = this.onTouchMove.bind(this);
-    this.onTouchEnd = this.onTouchEnd.bind(this);
     this.onKeyboardWillShow = this.onKeyboardWillShow.bind(this);
     this.onKeyboardWillHide = this.onKeyboardWillHide.bind(this);
     this.onKeyboardDidShow = this.onKeyboardDidShow.bind(this);
     this.onKeyboardDidHide = this.onKeyboardDidHide.bind(this);
-    this.onType = this.onType.bind(this);
     this.onSend = this.onSend.bind(this);
     this.getLocale = this.getLocale.bind(this);
+    this.onInputSizeChanged = this.onInputSizeChanged.bind(this);
+    this.onInputTextChanged = this.onInputTextChanged.bind(this);
+    this.onMainViewLayout = this.onMainViewLayout.bind(this);
+    this.onInitialLayoutViewLayout = this.onInitialLayoutViewLayout.bind(this);
+
+
+    this.invertibleScrollViewProps = {
+      inverted: true,
+      keyboardShouldPersistTaps: this.props.keyboardShouldPersistTaps,
+      onKeyboardWillShow: this.onKeyboardWillShow,
+      onKeyboardWillHide: this.onKeyboardWillHide,
+      onKeyboardDidShow: this.onKeyboardDidShow,
+      onKeyboardDidHide: this.onKeyboardDidHide,
+    };
   }
 
   static append(currentMessages = [], messages) {
@@ -88,17 +101,21 @@ class GiftedChat extends Component {
   }
 
   componentWillMount() {
+    const { messages, text } = this.props;
     this.setIsMounted(true);
     this.initLocale();
-    this.initMessages(this.props.messages);
+    this.setMessages(messages || []);
+    this.setTextFromProp(text);
   }
 
   componentWillUnmount() {
     this.setIsMounted(false);
   }
 
-  componentWillReceiveProps(nextProps) {
-    this.initMessages(nextProps.messages);
+  componentWillReceiveProps(nextProps = {}) {
+    const { messages, text } = nextProps;
+    this.setMessages(messages || []);
+    this.setTextFromProp(text);
   }
 
   initLocale() {
@@ -109,10 +126,6 @@ class GiftedChat extends Component {
     }
   }
 
-  initMessages(messages = []) {
-    this.setMessages(messages);
-  }
-
   setLocale(locale) {
     this._locale = locale;
   }
@@ -121,21 +134,26 @@ class GiftedChat extends Component {
     return this._locale;
   }
 
+  setTextFromProp(textProp) {
+    // Text prop takes precedence over state.
+    if (textProp !== undefined && textProp !== this.state.text) {
+      this.setState({ text: textProp });
+    }
+  }
+
+  getTextFromProp(fallback) {
+    if (this.props.text === undefined) {
+      return fallback;
+    }
+    return this.props.text;
+  }
+
   setMessages(messages) {
     this._messages = messages;
-    this.setMessagesHash(md5(JSON.stringify(messages)));
   }
 
   getMessages() {
     return this._messages;
-  }
-
-  setMessagesHash(messagesHash) {
-    this._messagesHash = messagesHash;
-  }
-
-  getMessagesHash() {
-    return this._messagesHash;
   }
 
   setMaxHeight(height) {
@@ -151,15 +169,40 @@ class GiftedChat extends Component {
   }
 
   getKeyboardHeight() {
-    return this._keyboardHeight;
+    if (Platform.OS === 'android') {
+      // For android: on-screen keyboard resized main container and has own height.
+      // @see https://developer.android.com/training/keyboard-input/visibility.html
+      // So for calculate the messages container height ignore keyboard height.
+      return 0;
+    } else {
+      return this._keyboardHeight;
+    }
+  }
+
+  setBottomOffset(value) {
+    this._bottomOffset = value;
+  }
+
+  getBottomOffset() {
+    return this._bottomOffset;
+  }
+
+  setIsFirstLayout(value) {
+    this._isFirstLayout = value;
+  }
+
+  getIsFirstLayout() {
+    return this._isFirstLayout;
   }
 
   setIsTypingDisabled(value) {
-    this._isTypingDisabled = value;
+    this.setState({
+      typingDisabled: value
+    });
   }
 
   getIsTypingDisabled() {
-    return this._isTypingDisabled;
+    return this.state.typingDisabled;
   }
 
   setIsMounted(value) {
@@ -173,10 +216,25 @@ class GiftedChat extends Component {
   // TODO
   // setMinInputToolbarHeight
   getMinInputToolbarHeight() {
-    if (this.props.renderAccessory) {
-      return MIN_INPUT_TOOLBAR_HEIGHT * 2;
-    }
-    return MIN_INPUT_TOOLBAR_HEIGHT;
+    return this.props.renderAccessory ? this.props.minInputToolbarHeight * 2 : this.props.minInputToolbarHeight;
+  }
+
+  calculateInputToolbarHeight(composerHeight) {
+    return composerHeight + (this.getMinInputToolbarHeight() - MIN_COMPOSER_HEIGHT);
+  }
+
+  /**
+   * Returns the height, based on current window size, without taking the keyboard into account.
+   */
+  getBasicMessagesContainerHeight(composerHeight = this.state.composerHeight) {
+    return this.getMaxHeight() - this.calculateInputToolbarHeight(composerHeight);
+  }
+
+  /**
+   * Returns the height, based on current window size, taking the keyboard into account.
+   */
+  getMessagesContainerHeightWithKeyboard(composerHeight = this.state.composerHeight) {
+    return this.getBasicMessagesContainerHeight(composerHeight) - this.getKeyboardHeight() + this.getBottomOffset();
   }
 
   prepareMessagesContainerHeight(value) {
@@ -188,18 +246,17 @@ class GiftedChat extends Component {
 
   onKeyboardWillShow(e) {
     this.setIsTypingDisabled(true);
-    this.setKeyboardHeight(e.endCoordinates.height);
-    const newMessagesContainerHeight = (this.getMaxHeight() - (this.state.composerHeight + (this.getMinInputToolbarHeight() - MIN_COMPOSER_HEIGHT))) - this.getKeyboardHeight();
+    this.setKeyboardHeight(e.endCoordinates ? e.endCoordinates.height : e.end.height);
+    this.setBottomOffset(this.props.bottomOffset);
+    const newMessagesContainerHeight = this.getMessagesContainerHeightWithKeyboard();
     if (this.props.isAnimated === true) {
       Animated.timing(this.state.messagesContainerHeight, {
         toValue: newMessagesContainerHeight,
         duration: 210,
       }).start();
     } else {
-      this.setState((previousState) => {
-        return {
-          messagesContainerHeight: newMessagesContainerHeight,
-        };
+      this.setState({
+        messagesContainerHeight: newMessagesContainerHeight,
       });
     }
   }
@@ -207,17 +264,16 @@ class GiftedChat extends Component {
   onKeyboardWillHide() {
     this.setIsTypingDisabled(true);
     this.setKeyboardHeight(0);
-    const newMessagesContainerHeight = this.getMaxHeight() - (this.state.composerHeight + (this.getMinInputToolbarHeight() - MIN_COMPOSER_HEIGHT));
+    this.setBottomOffset(0);
+    const newMessagesContainerHeight = this.getBasicMessagesContainerHeight();
     if (this.props.isAnimated === true) {
       Animated.timing(this.state.messagesContainerHeight, {
         toValue: newMessagesContainerHeight,
         duration: 210,
       }).start();
     } else {
-      this.setState((previousState) => {
-        return {
-          messagesContainerHeight: newMessagesContainerHeight,
-        };
+      this.setState({
+        messagesContainerHeight: newMessagesContainerHeight,
       });
     }
   }
@@ -237,26 +293,11 @@ class GiftedChat extends Component {
   }
 
   scrollToBottom(animated = true) {
+    if (this._messageContainerRef === null) { return }
     this._messageContainerRef.scrollTo({
       y: 0,
       animated,
     });
-  }
-
-  onTouchStart() {
-    this._touchStarted = true;
-  }
-
-  onTouchMove() {
-    this._touchStarted = false;
-  }
-
-  // handle Tap event to dismiss keyboard
-  onTouchEnd() {
-    if (this._touchStarted === true) {
-      dismissKeyboard();
-    }
-    this._touchStarted = false;
   }
 
   renderMessages() {
@@ -268,23 +309,13 @@ class GiftedChat extends Component {
         <MessageContainer
           {...this.props}
 
-          invertibleScrollViewProps={{
-            inverted: true,
-            keyboardShouldPersistTaps: true,
-            onTouchStart: this.onTouchStart,
-            onTouchMove: this.onTouchMove,
-            onTouchEnd: this.onTouchEnd,
-            onKeyboardWillShow: this.onKeyboardWillShow,
-            onKeyboardWillHide: this.onKeyboardWillHide,
-            onKeyboardDidShow: this.onKeyboardDidShow,
-            onKeyboardDidHide: this.onKeyboardDidHide,
-          }}
+          invertibleScrollViewProps={this.invertibleScrollViewProps}
 
           messages={this.getMessages()}
-          messagesHash={this.getMessagesHash()}
 
           ref={component => this._messageContainerRef = component}
         />
+        {this.renderChatFooter()}
       </AnimatedView>
     );
   }
@@ -299,7 +330,7 @@ class GiftedChat extends Component {
         ...message,
         user: this.props.user,
         createdAt: new Date(),
-        _id: 'temp-id-' + Math.round(Math.random() * 1000000),
+        _id: this.props.messageIdGenerator(),
       };
     });
 
@@ -316,49 +347,106 @@ class GiftedChat extends Component {
         if (this.getIsMounted() === true) {
           this.setIsTypingDisabled(false);
         }
-      }, 200);
+      }, 100);
     }
   }
 
   resetInputToolbar() {
-    this.setState((previousState) => {
-      return {
-        text: '',
-        composerHeight: MIN_COMPOSER_HEIGHT,
-        messagesContainerHeight: this.prepareMessagesContainerHeight(this.getMaxHeight() - this.getMinInputToolbarHeight() - this.getKeyboardHeight()),
-      };
+    if (this.textInput) {
+      this.textInput.clear();
+    }
+    this.notifyInputTextReset();
+    const newComposerHeight = MIN_COMPOSER_HEIGHT;
+    const newMessagesContainerHeight = this.getMessagesContainerHeightWithKeyboard(newComposerHeight);
+    this.setState({
+      text: this.getTextFromProp(''),
+      composerHeight: newComposerHeight,
+      messagesContainerHeight: this.prepareMessagesContainerHeight(newMessagesContainerHeight),
     });
   }
 
-  calculateInputToolbarHeight(newComposerHeight) {
-    return newComposerHeight + (this.getMinInputToolbarHeight() - MIN_COMPOSER_HEIGHT);
+  focusTextInput() {
+    if (this.textInput) {
+      this.textInput.focus();
+    }
   }
 
-  onType(e) {
-    if (this.getIsTypingDisabled() === true) {
+  onInputSizeChanged(size) {
+    const newComposerHeight = Math.max(MIN_COMPOSER_HEIGHT, Math.min(MAX_COMPOSER_HEIGHT, size.height));
+    const newMessagesContainerHeight = this.getMessagesContainerHeightWithKeyboard(newComposerHeight);
+    this.setState({
+      composerHeight: newComposerHeight,
+      messagesContainerHeight: this.prepareMessagesContainerHeight(newMessagesContainerHeight),
+    });
+  }
+
+  onInputTextChanged(text) {
+    if (this.getIsTypingDisabled()) {
       return;
     }
-    const newComposerHeight = Math.max(MIN_COMPOSER_HEIGHT, Math.min(MAX_COMPOSER_HEIGHT, e.nativeEvent.contentSize.height));
-    const newMessagesContainerHeight = this.getMaxHeight() - this.calculateInputToolbarHeight(newComposerHeight) - this.getKeyboardHeight();
-    const newText = e.nativeEvent.text;
-    this.setState((previousState) => {
-      return {
-        text: newText,
-        composerHeight: newComposerHeight,
-        messagesContainerHeight: this.prepareMessagesContainerHeight(newMessagesContainerHeight),
-      };
+    if (this.props.onInputTextChanged) {
+      this.props.onInputTextChanged(text);
+    }
+    // Only set state if it's not being overridden by a prop.
+    if (this.props.text === undefined) {
+      this.setState({ text });
+    }
+  }
+
+  notifyInputTextReset() {
+    if (this.props.onInputTextChanged) {
+      this.props.onInputTextChanged('');
+    }
+  }
+
+  onInitialLayoutViewLayout(e) {
+    const layout = e.nativeEvent.layout;
+    if (layout.height <= 0) {
+      return;
+    }
+    this.notifyInputTextReset();
+    this.setMaxHeight(layout.height);
+    const newComposerHeight = MIN_COMPOSER_HEIGHT;
+    const newMessagesContainerHeight = this.getMessagesContainerHeightWithKeyboard(newComposerHeight);
+    this.setState({
+      isInitialized: true,
+      text: this.getTextFromProp(''),
+      composerHeight: newComposerHeight,
+      messagesContainerHeight: this.prepareMessagesContainerHeight(newMessagesContainerHeight),
     });
+  }
+
+  onMainViewLayout(e) {
+    // fix an issue when keyboard is dismissing during the initialization
+    const layout = e.nativeEvent.layout;
+    if (this.getMaxHeight() !== layout.height || this.getIsFirstLayout() === true) {
+      this.setMaxHeight(layout.height);
+      this.setState({
+        messagesContainerHeight: this.prepareMessagesContainerHeight(this.getBasicMessagesContainerHeight()),
+      });
+    }
+    if (this.getIsFirstLayout() === true) {
+      this.setIsFirstLayout(false);
+    }
   }
 
   renderInputToolbar() {
     const inputToolbarProps = {
       ...this.props,
-      text: this.state.text,
+      text: this.getTextFromProp(this.state.text),
       composerHeight: Math.max(MIN_COMPOSER_HEIGHT, this.state.composerHeight),
-      onChange: this.onType,
       onSend: this.onSend,
+      onInputSizeChanged: this.onInputSizeChanged,
+      onTextChanged: this.onInputTextChanged,
+      textInputProps: {
+        ...this.props.textInputProps,
+        ref: textInput => this.textInput = textInput,
+        maxLength: this.getIsTypingDisabled() ? 0 : this.props.maxInputLength
+      }
     };
-
+    if (this.getIsTypingDisabled()) {
+      inputToolbarProps.textInputProps.maxLength = 0;
+    }
     if (this.props.renderInputToolbar) {
       return this.props.renderInputToolbar(inputToolbarProps);
     }
@@ -367,6 +455,16 @@ class GiftedChat extends Component {
         {...inputToolbarProps}
       />
     );
+  }
+
+  renderChatFooter() {
+    if (this.props.renderChatFooter) {
+      const footerProps = {
+        ...this.props,
+      };
+      return this.props.renderChatFooter(footerProps);
+    }
+    return null;
   }
 
   renderLoading() {
@@ -380,7 +478,7 @@ class GiftedChat extends Component {
     if (this.state.isInitialized === true) {
       return (
         <ActionSheet ref={component => this._actionSheetRef = component}>
-          <View style={styles.container}>
+          <View style={styles.container} onLayout={this.onMainViewLayout}>
             {this.renderMessages()}
             {this.renderInputToolbar()}
           </View>
@@ -388,21 +486,7 @@ class GiftedChat extends Component {
       );
     }
     return (
-      <View
-        style={styles.container}
-        onLayout={(e) => {
-          const layout = e.nativeEvent.layout;
-          this.setMaxHeight(layout.height);
-          InteractionManager.runAfterInteractions(() => {
-            this.setState({
-              isInitialized: true,
-              text: '',
-              composerHeight: MIN_COMPOSER_HEIGHT,
-              messagesContainerHeight: this.prepareMessagesContainerHeight(this.getMaxHeight() - this.getMinInputToolbarHeight()),
-            });
-          });
-        }}
-      >
+      <View style={styles.container} onLayout={this.onInitialLayoutViewLayout}>
         {this.renderLoading()}
       </View>
     );
@@ -422,31 +506,100 @@ GiftedChat.childContextTypes = {
 
 GiftedChat.defaultProps = {
   messages: [],
+  text: undefined,
+  placeholder: 'Type a message...',
+  messageIdGenerator: () => uuid.v4(),
+  user: {},
   onSend: () => {},
-  loadEarlier: false,
-  onLoadEarlier: () => {},
   locale: null,
+  timeFormat: 'LT',
+  dateFormat: 'll',
   isAnimated: Platform.select({
     ios: true,
     android: false,
   }),
-  footer: null,
-  renderAccessory: null,
-  renderActions: null,
-  renderAvatar: null,
+  loadEarlier: false,
+  onLoadEarlier: () => {},
+  isLoadingEarlier: false,
+  renderLoading: null,
+  renderLoadEarlier: null,
+  renderAvatar: undefined,
+  showUserAvatar: false,
+  onPressAvatar: null,
+  renderAvatarOnTop: false,
   renderBubble: null,
+  onLongPress: null,
+  renderMessage: null,
   renderMessageText: null,
   renderMessageImage: null,
-  renderComposer: null,
+  imageProps: {},
+  lightboxProps: {},
   renderCustomView: null,
   renderDay: null,
-  renderInputToolbar: null,
-  renderLoadEarlier: null,
-  renderLoading: null,
-  renderMessage: null,
-  renderSend: null,
   renderTime: null,
-  user: {},
+  renderFooter: null,
+  renderChatFooter: null,
+  renderInputToolbar: null,
+  renderComposer: null,
+  renderActions: null,
+  renderSend: null,
+  renderAccessory: null,
+  onPressActionButton: null,
+  bottomOffset: 0,
+  minInputToolbarHeight: 44,
+  listViewProps: {},
+  keyboardShouldPersistTaps: Platform.select({
+    ios: 'never',
+    android: 'always',
+  }),
+  onInputTextChanged: null,
+  maxInputLength: null,
+};
+
+GiftedChat.propTypes = {
+  messages: PropTypes.array,
+  text: PropTypes.string,
+  placeholder: PropTypes.string,
+  messageIdGenerator: PropTypes.func,
+  user: PropTypes.object,
+  onSend: PropTypes.func,
+  locale: PropTypes.string,
+  timeFormat: PropTypes.string,
+  dateFormat: PropTypes.string,
+  isAnimated: PropTypes.bool,
+  loadEarlier: PropTypes.bool,
+  onLoadEarlier: PropTypes.func,
+  isLoadingEarlier: PropTypes.bool,
+  renderLoading: PropTypes.func,
+  renderLoadEarlier: PropTypes.func,
+  renderAvatar: PropTypes.func,
+  showUserAvatar: PropTypes.bool,
+  onPressAvatar: PropTypes.func,
+  renderAvatarOnTop: PropTypes.bool,
+  renderBubble: PropTypes.func,
+  onLongPress: PropTypes.func,
+  renderMessage: PropTypes.func,
+  renderMessageText: PropTypes.func,
+  renderMessageImage: PropTypes.func,
+  imageProps: PropTypes.object,
+  lightboxProps: PropTypes.object,
+  renderCustomView: PropTypes.func,
+  renderDay: PropTypes.func,
+  renderTime: PropTypes.func,
+  renderFooter: PropTypes.func,
+  renderChatFooter: PropTypes.func,
+  renderInputToolbar: PropTypes.func,
+  renderComposer: PropTypes.func,
+  renderActions: PropTypes.func,
+  renderSend: PropTypes.func,
+  renderAccessory: PropTypes.func,
+  onPressActionButton: PropTypes.func,
+  bottomOffset: PropTypes.number,
+  minInputToolbarHeight: PropTypes.number,
+  listViewProps: PropTypes.object,
+  keyboardShouldPersistTaps: PropTypes.oneOf(['always', 'never', 'handled']),
+  onInputTextChanged: PropTypes.func,
+  maxInputLength: PropTypes.number,
 };
 
 export {
@@ -461,6 +614,9 @@ export {
   InputToolbar,
   LoadEarlier,
   Message,
+  MessageContainer,
   Send,
   Time,
+  GiftedAvatar,
+  utils
 };

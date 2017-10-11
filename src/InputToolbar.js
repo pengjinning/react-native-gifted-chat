@@ -1,17 +1,21 @@
-import React, { Component, PropTypes } from 'react';
+import PropTypes from 'prop-types';
+import React from 'react';
 import {
-  PixelRatio,
   StyleSheet,
   View,
+  ViewPropTypes,
 } from 'react-native';
 
 import Composer from './Composer';
 import Send from './Send';
+import Actions from './Actions';
 
-export default class InputToolbar extends Component {
+export default class InputToolbar extends React.Component {
   renderActions() {
     if (this.props.renderActions) {
       return this.props.renderActions(this.props);
+    } else if (this.props.onPressActionButton) {
+      return <Actions {...this.props} />;
     }
     return null;
   }
@@ -62,7 +66,7 @@ export default class InputToolbar extends Component {
 
 const styles = StyleSheet.create({
   container: {
-    borderTopWidth: 1 / PixelRatio.get(),
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#b2b2b2',
     backgroundColor: '#FFFFFF',
   },
@@ -76,11 +80,22 @@ const styles = StyleSheet.create({
 });
 
 InputToolbar.defaultProps = {
-  containerStyle: {},
-  primaryStyle: {},
-  accessoryStyle: {},
   renderAccessory: null,
   renderActions: null,
   renderSend: null,
   renderComposer: null,
+  containerStyle: {},
+  primaryStyle: {},
+  accessoryStyle: {},
+};
+
+InputToolbar.propTypes = {
+  renderAccessory: PropTypes.func,
+  renderActions: PropTypes.func,
+  renderSend: PropTypes.func,
+  renderComposer: PropTypes.func,
+  onPressActionButton: PropTypes.func,
+  containerStyle: ViewPropTypes.style,
+  primaryStyle: ViewPropTypes.style,
+  accessoryStyle: ViewPropTypes.style,
 };

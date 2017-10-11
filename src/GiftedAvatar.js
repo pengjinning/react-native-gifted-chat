@@ -1,7 +1,8 @@
 /*
 **  This component will be published in a separate package
 */
-import React, { Component } from 'react';
+import PropTypes from 'prop-types';
+import React from 'react';
 import {
   Image,
   Text,
@@ -13,7 +14,7 @@ import {
 // 3 words name initials
 // handle only alpha numeric chars
 
-class GiftedAvatar extends Component {
+export default class GiftedAvatar extends React.Component {
   setAvatarColor() {
     const userName = this.props.user.name || '';
     const name = userName.toUpperCase().split(' ');
@@ -55,6 +56,13 @@ class GiftedAvatar extends Component {
           style={[defaultStyles.avatarStyle, this.props.avatarStyle]}
         />
       );
+    } else if (typeof this.props.user.avatar === 'number') {
+      return (
+        <Image
+          source={this.props.user.avatar}
+          style={[defaultStyles.avatarStyle, this.props.avatarStyle]}
+        />
+      );
     }
     return null;
   }
@@ -71,11 +79,14 @@ class GiftedAvatar extends Component {
     if (!this.props.user.name && !this.props.user.avatar) {
       // render placeholder
       return (
-        <View style={[
-          defaultStyles.avatarStyle,
-          {backgroundColor: 'transparent'},
-          this.props.avatarStyle,
-        ]}/>
+        <View
+          style={[
+            defaultStyles.avatarStyle,
+            {backgroundColor: 'transparent'},
+            this.props.avatarStyle,
+          ]}
+          accessibilityTraits="image"
+        />
       )
     }
     if (this.props.user.avatar) {
@@ -86,6 +97,7 @@ class GiftedAvatar extends Component {
             const {onPress, ...other} = this.props;
             this.props.onPress && this.props.onPress(other);
           }}
+          accessibilityTraits="image"
         >
           {this.renderAvatar()}
         </TouchableOpacity>
@@ -108,22 +120,13 @@ class GiftedAvatar extends Component {
           {backgroundColor: this.avatarColor},
           this.props.avatarStyle,
         ]}
+        accessibilityTraits="image"
       >
         {this.renderInitials()}
       </TouchableOpacity>
     );
   }
 }
-
-GiftedAvatar.defaultProps = {
-  user: {
-    name: null,
-    avatar: null,
-  },
-  onPress: null,
-  avatarStyle: {},
-  textStyle: {},
-};
 
 const defaultStyles = {
   avatarStyle: {
@@ -141,4 +144,19 @@ const defaultStyles = {
   },
 };
 
-export default GiftedAvatar;
+GiftedAvatar.defaultProps = {
+  user: {
+    name: null,
+    avatar: null,
+  },
+  onPress: null,
+  avatarStyle: {},
+  textStyle: {},
+};
+
+GiftedAvatar.propTypes = {
+  user: PropTypes.object,
+  onPress: PropTypes.func,
+  avatarStyle: Image.propTypes.style,
+  textStyle: Text.propTypes.style,
+};

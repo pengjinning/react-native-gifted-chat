@@ -1,59 +1,31 @@
-import React, { Component, PropTypes } from 'react';
+import PropTypes from 'prop-types';
+import React from 'react';
 import {
   View,
+  ViewPropTypes,
   StyleSheet,
 } from 'react-native';
-
-import moment from 'moment';
 
 import Avatar from './Avatar';
 import Bubble from './Bubble';
 import Day from './Day';
 
-export default class Message extends Component {
-  shouldComponentUpdate(nextProps, nextState) {
-    // not implemented yet
-    // if (this.props.currentMessage.status !== nextProps.currentMessage.status) {
-    //   return true;
-    // }
-    if (this.props.nextMessage._id !== nextProps.nextMessage._id) {
-      return true;
-    }
-    if (this.props.previousMessage._id !== nextProps.previousMessage._id) {
-      return true;
-    }
-    return false;
-  }
+import {isSameUser, isSameDay} from './utils';
 
-  isSameDay(currentMessage = {}, diffMessage = {}) {
-    let diff = 0;
-    if (diffMessage.createdAt && currentMessage.createdAt) {
-      diff = Math.abs(moment(diffMessage.createdAt).startOf('day').diff(moment(currentMessage.createdAt).startOf('day'), 'days'));
-    } else {
-      diff = 1;
-    }
-    if (diff === 0) {
-      return true;
-    }
-    return false;
-  }
+export default class Message extends React.Component {
 
-  isSameUser(currentMessage = {}, diffMessage = {}) {
-    if (diffMessage.user && currentMessage.user) {
-      if (diffMessage.user._id === currentMessage.user._id) {
-        return true;
-      }
+  getInnerComponentProps() {
+    const {containerStyle, ...props} = this.props;
+    return {
+      ...props,
+      isSameUser,
+      isSameDay
     }
-    return false;
   }
 
   renderDay() {
     if (this.props.currentMessage.createdAt) {
-      const dayProps = {
-        ...this.props,
-        isSameUser: this.isSameUser,
-        isSameDay: this.isSameDay,
-      };
+      const dayProps = this.getInnerComponentProps();
       if (this.props.renderDay) {
         return this.props.renderDay(dayProps);
       }
@@ -63,11 +35,7 @@ export default class Message extends Component {
   }
 
   renderBubble() {
-    const bubbleProps = {
-      ...this.props,
-      isSameUser: this.isSameUser,
-      isSameDay: this.isSameDay,
-    };
+    const bubbleProps = this.getInnerComponentProps();
     if (this.props.renderBubble) {
       return this.props.renderBubble(bubbleProps);
     }
@@ -75,27 +43,23 @@ export default class Message extends Component {
   }
 
   renderAvatar() {
-    if (this.props.user._id !== this.props.currentMessage.user._id) {
-      const avatarProps = {
-        ...this.props,
-        isSameUser: this.isSameUser,
-        isSameDay: this.isSameDay,
-      };
-      return <Avatar {...avatarProps}/>;
+    if (this.props.user._id === this.props.currentMessage.user._id && !this.props.showUserAvatar) {
+      return null;
     }
-    return null;
+    const avatarProps = this.getInnerComponentProps();
+    const { currentMessage } = avatarProps;
+    if (currentMessage.user.avatar === null) {
+      return null;
+    }
+    return <Avatar {...avatarProps} />;
   }
 
   render() {
-    // if (!this.props.currentMessage.text && !this.props.currentMessage.customView && !this.props.currentMessage.image) {
-    //   return null;
-    // }
-
     return (
       <View>
         {this.renderDay()}
         <View style={[styles[this.props.position].container, {
-          marginBottom: this.isSameUser(this.props.currentMessage, this.props.nextMessage) ? 2 : 10,
+          marginBottom: isSameUser(this.props.currentMessage, this.props.nextMessage) ? 2 : 10,
         }, this.props.containerStyle[this.props.position]]}>
           {this.props.position === 'left' ? this.renderAvatar() : null}
           {this.renderBubble()}
@@ -128,8 +92,7 @@ const styles = {
 };
 
 Message.defaultProps = {
-  containerStyle: {},
-  renderAvatar: null,
+  renderAvatar: undefined,
   renderBubble: null,
   renderDay: null,
   position: 'left',
@@ -137,4 +100,21 @@ Message.defaultProps = {
   nextMessage: {},
   previousMessage: {},
   user: {},
+  containerStyle: {},
+};
+
+Message.propTypes = {
+  renderAvatar: PropTypes.func,
+  showUserAvatar: PropTypes.bool,
+  renderBubble: PropTypes.func,
+  renderDay: PropTypes.func,
+  position: PropTypes.oneOf(['left', 'right']),
+  currentMessage: PropTypes.object,
+  nextMessage: PropTypes.object,
+  previousMessage: PropTypes.object,
+  user: PropTypes.object,
+  containerStyle: PropTypes.shape({
+    left: ViewPropTypes.style,
+    right: ViewPropTypes.style,
+  }),
 };
